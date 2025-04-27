@@ -4,6 +4,31 @@ import { ApiError } from "../utils/apierror.js";
 import { User } from "../models/user.model.js";
 import { uploadOnCloudinary, deletefromCloudinary } from "../utils/cloudinary.js";
 
+
+
+
+const generateAccessandRefreshToken=async (userId)=>{
+    try {
+        const user=await User.findById(userId)
+        
+        if(!user){
+            throw new ApiError(500,"user not found");
+        }
+    
+        const acesstoken=user.generateAcessToken()
+        const refreshtoken=user.generateRefreshToken()
+    
+    
+        user.refreshtoken=refreshtoken
+        await user.save({validateBeforeSave:false})
+        return {acesstoken,refreshtoken}
+    } catch (error) {
+        throw new ApiError(500,"Something went wrong while generating acess token");
+    }
+
+}
+
+
 const registerUser = asynchandler(async (req, res) => {
     const { fullname, email, username, password } = req.body;
 
@@ -80,6 +105,53 @@ const registerUser = asynchandler(async (req, res) => {
         throw new ApiError(500, "Registration failed. Uploaded images have been deleted.");
     }
 });
+
+
+
+const loginuser=asynchandler(async (req,res)=>{
+    //get a data from body
+    const {email,username,password}=req.body
+
+    //validation
+    if(!email){
+        throw new ApiError(500,"Email is not there");
+    }
+
+    const user = await User.findOne({
+        $or: [{ username }, { email }]
+    });
+
+    if(!user){
+        throw new ApiError(500,"user not found")
+    }
+
+    //validte password
+   const isPasswordValid= await user.isPasswordCorrect(password)
+
+   if(!isPasswordValid){
+    throw new ApiError(401,"invalid credentials")
+   }
+
+
+   const {acesstoken,refreshtoken}=await generateAccessandRefreshToken(user._id)
+
+
+   const loggedInUser=await user.findById(user._id).select("-password -refreshToken");
+
+
+   const options={
+    httpOnly:true,
+    secure:process.env.NODE_ENV==="production"
+
+   }
+
+   return res
+   .status(200)
+   .cookie("acessToken",acesstoken,options)
+   .cookie("refreshToken",refreshtoken,options)
+   .json(new ApiResponse(200,{loggedInUser,acesstoken,refreshtoken},"User logged in sucessfully"))
+
+})
 
 export {
     registerUser
