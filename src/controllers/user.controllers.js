@@ -4,6 +4,7 @@ import { ApiError } from "../utils/apierror.js";
 import { User } from "../models/user.model.js";
 import { uploadOnCloudinary, deletefromCloudinary } from "../utils/cloudinary.js";
 import jwt from "jsonwebtoken"
+import mongoose from "mongoose";
 
 
 
@@ -321,6 +322,122 @@ const updateUserCoverImage=asynchandler(async (req,res)=>{
     return res.status(200).json(new ApiResponse(200,user,"cover image updated succesfully"))
 })
 
+
+const getUserChannelProfile=asynchandler (async (req,res)=>{
+    const {username}=req.params
+
+    if(!username?.trim()){
+        throw new ApiError(400,"Username is required");
+    }
+
+    const channel=await User.aggregate(
+        [
+           {
+            $match:{
+                username:username?.toLowerCase()
+            }
+           },
+           {
+            $lookup:{
+                from:"subscriptions",
+                localField:"_id",
+                foreignField:"channel",
+                as:"subscribers"
+            }
+           },{
+            $lookup:{
+                from:"subscriptions",
+                localField:"_id",
+                foreignField:"subscriber",
+                as:"subscriberedTo"
+
+            }
+           },
+           {
+            $addField:{
+                subcribersCount:{
+                    $size:"$subscribers"
+                },channelsSubcriberdToCount:{
+                    $size:"$subsciberedTo"
+                },
+                    isSubcribered:{
+                        $cond:{
+                            if:{
+                                $in:[req.user?._id,"$subcribers","subscriber"]
+                            },
+                            then:true,
+                            else:false
+                        }
+                    
+                }
+            }
+           },{
+            //project
+            $project:{
+                fullname:1,
+                username:1,
+                avatar:1,
+                subscribersCount:1,
+                channelsSubscriberToCount:1,
+                isSubscribed:1,
+                coverImage:1,
+                email:1
+            }
+           }
+        ]
+    )
+
+    if(channel?.length){
+        throw new ApiError(404,"channel not found")
+    }
+
+    return res.status(200).json(new ApiResponse(200,channel[0],"channel profile fetched succesfully"))
+})
+
+const getWatchHistroy=asynchandler (async (req,res)=>{
+    const user=await User.aggregate(
+        [{
+            $match:{
+                _id:new mongoose.Types.ObjectId(req.user?._id)
+            }
+        }
+        ,
+        {
+            $lookup:{
+                from:"videos",
+                localFiled:"watchHistory",
+                foreignField:"_id",
+                as:"watchHistory",
+                pipeline:[
+                    {
+                        $lookup:{
+                            from:"users",
+                            localField:"owner",
+                            foreignField:"_id",
+                            as:"owner",
+                            pipeline:[
+                                $project:{
+                                    fullname:1,
+                                    username:1,
+                                    avatar:1
+                                }
+                            ]
+                        }
+                    },
+                    $addField:{
+                        owner:{
+                            $first:"$owner",
+                        }
+                    }
+                ]
+            }
+        }
+    
+        ]
+    )
+
+    return res.status(200).json(new ApiResponse(200,user[0]?.WatchHistroy,"watch history fetched succesfully"))
+})
 
 export {
     registerUser,
